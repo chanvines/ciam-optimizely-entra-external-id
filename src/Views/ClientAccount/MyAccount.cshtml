@@ -1,0 +1,87 @@
+@{
+    Layout = null;
+    ViewData["Title"] = "My Account | Valora";
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+
+    <title>@ViewData["Title"]</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            color: #15283f;
+        }
+
+        header {
+            background: #15283f;
+            color: white;
+            padding: 25px 50px;
+        }
+
+        main {
+            max-width: 850px;
+            margin: 60px auto;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+        }
+
+        button {
+            background: #15283f;
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h2>VALORA | ASSET MANAGEMENT</h2>
+</header>
+
+<main>
+
+    <h1>Welcome to your client portal</h1>
+
+    <p>
+        Hello, @User.Identity?.Name
+    </p>
+
+    <p>
+        Access your investment information,
+        account services and portfolio documents.
+    </p>
+
+    <h3>My services</h3>
+
+    <ul>
+        <li>Portfolio overview</li>
+        <li>Investment documents</li>
+        <li>Account information</li>
+        <li>Contact your relationship manager</li>
+    </ul>
+
+    <form method="post" action="/client/logout">
+
+        @Html.AntiForgeryToken()
+
+        <button type="submit">
+            Sign Out
+        </button>
+
+    </form>
+
+</main>
+
+</body>
+</html>

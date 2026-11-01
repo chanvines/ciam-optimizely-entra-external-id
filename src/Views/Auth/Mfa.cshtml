@@ -1,0 +1,84 @@
+@{
+    Layout = null;
+    ViewData["Title"] = "Verify your identity | Valora";
+}
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+
+    <title>@ViewData["Title"]</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #15283f;
+        }
+
+        .container {
+            max-width: 420px;
+            margin: 100px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 12px;
+        }
+
+        input, button {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 14px;
+            margin-top: 15px;
+        }
+
+        button {
+            background: #15283f;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>Verify your identity</h1>
+
+    <p>
+        Enter the verification code sent to your registered email.
+    </p>
+
+    <form method="post" action="/client/mfa">
+
+        @Html.AntiForgeryToken()
+
+        <label for="code">Verification code</label>
+
+        <input
+            type="text"
+            id="code"
+            name="code"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            required />
+
+        <button type="submit">
+            Verify and continue
+        </button>
+
+    </form>
+
+    @if (ViewBag.Message != null)
+    {
+        <p role="alert">@ViewBag.Message</p>
+    }
+
+</div>
+
+</body>
+</html>
