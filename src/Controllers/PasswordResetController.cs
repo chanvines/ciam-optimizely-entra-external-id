@@ -199,6 +199,7 @@ public class PasswordResetController : Controller
         if (result.Status == "succeeded")
         {
             ClearReset();
+            TempData["PasswordResetSuccess"] = "Password reset completed. Sign in with your new password.";
 
             return Redirect("/client/login");
         }

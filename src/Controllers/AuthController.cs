@@ -26,6 +26,7 @@ public class AuthController : Controller
 	[HttpGet("/client/login")]
 	public IActionResult SignIn()
 	{
+		ViewBag.Message = TempData["PasswordResetSuccess"];
 		return View();
 	}
 

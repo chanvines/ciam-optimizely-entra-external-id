@@ -7,13 +7,16 @@ public class NativeAuthService
 {
     private readonly HttpClient _httpClient;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<NativeAuthService> _logger;
 
     public NativeAuthService(
         HttpClient httpClient,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        ILogger<NativeAuthService> logger)
     {
         _httpClient = httpClient;
         _configuration = configuration;
+        _logger = logger;
     }
 
     public async Task<NativeAuthResponse> StartSignInAsync(string email)
@@ -45,6 +48,7 @@ public class NativeAuthService
         using var response = await _httpClient.PostAsync(url, content);
 
         var responseBody = await response.Content.ReadAsStringAsync();
+        LogOutcome("initiate", response, responseBody);
 
         var result = JsonSerializer.Deserialize<NativeAuthResponse>(
             responseBody
@@ -79,6 +83,7 @@ public class NativeAuthService
 
         var responseBody =
             await response.Content.ReadAsStringAsync();
+        LogOutcome("challenge", response, responseBody);
 
         return JsonSerializer.Deserialize<NativeAuthResponse>(
             responseBody
@@ -119,6 +124,7 @@ public class NativeAuthService
 
         var responseBody =
             await response.Content.ReadAsStringAsync();
+        LogOutcome("token", response, responseBody);
 
         var result =
             JsonSerializer.Deserialize<NativeTokenResponse>(
@@ -165,5 +171,45 @@ public class NativeAuthService
         return await SubmitPasswordAsync(
             challenge.ContinuationToken,
             password);
+    }
+
+    private void LogOutcome(string step, HttpResponseMessage response, string json)
+    {
+        if (response.IsSuccessStatusCode) return;
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        string Read(string key) => root.TryGetProperty(key, out var value) &&
+            value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+        // Only predefined categories and a numeric AADSTS code may enter logs.
+        // Never log the response body, credentials, identifiers or tokens.
+        var error = Read("error") switch
+        {
+            "invalid_grant" => "invalid_grant",
+            "invalid_request" => "invalid_request",
+            "invalid_client" => "invalid_client",
+            "unauthorized_client" => "unauthorized_client",
+            "unsupported_grant_type" => "unsupported_grant_type",
+            "invalid_scope" => "invalid_scope",
+            "expired_token" => "expired_token",
+            _ => "other"
+        };
+        var suberror = Read("suberror") switch
+        {
+            "mfa_required" => "mfa_required",
+            "registration_required" => "registration_required",
+            "invalid_credentials" => "invalid_credentials",
+            "user_not_found" => "user_not_found",
+            "password_reset_required" => "password_reset_required",
+            "invalid_oob_value" => "invalid_oob_value",
+            _ => "other_or_absent"
+        };
+        var match = System.Text.RegularExpressions.Regex.Match(
+            Read("error_description") ?? "", @"\bAADSTS[0-9]{4,12}\b");
+        _logger.LogWarning(
+            "Entra native auth: step={Step}, HTTP={Status}, error={Error}, suberror={Suberror}, code={Code}",
+            step, (int)response.StatusCode, error, suberror,
+            match.Success ? match.Value : "absent");
     }
 }

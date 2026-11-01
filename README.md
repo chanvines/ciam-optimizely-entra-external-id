@@ -50,7 +50,7 @@ Ne pas enregistrer de mot de passe dans les fichiers suivis par Git. Utiliser de
 ## État actuel : prototype
 
 - Les services de connexion, MFA et réinitialisation sont enregistrés comme clients HTTP dans Startup.cs.
-- La session des parcours MFA et réinitialisation expire après 15 minutes. La validité des codes reste contrôlée par Entra.
+- La session MFA et réinitialisation expire après une minute sans requête. Le cookie client connecté conserve sa durée de 30 minutes. La validité des codes reste contrôlée par Entra.
 - L’inscription et l’enrôlement MFA ne sont pas implémentés.
 - La page compte est une démonstration, sans données de portefeuille réelles.
 - La recherche CMS est désactivée ; aucun test automatisé n’est fourni.
