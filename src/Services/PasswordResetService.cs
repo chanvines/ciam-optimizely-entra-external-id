@@ -28,18 +28,22 @@ public class PasswordResetService
 {
     private readonly HttpClient _httpClient;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<PasswordResetService> _logger;
 
     public PasswordResetService(
         HttpClient httpClient,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        ILogger<PasswordResetService> logger)
     {
         _httpClient = httpClient;
         _configuration = configuration;
+        _logger = logger;
     }
 
     private async Task<PasswordResetResponse> PostAsync(
         string endpoint,
-        Dictionary<string, string> parameters)
+        Dictionary<string, string> parameters,
+        CancellationToken cancellationToken = default)
     {
         var tenant =
             _configuration["EntraExternal:TenantSubdomain"];
@@ -65,17 +69,33 @@ public class PasswordResetService
             new FormUrlEncodedContent(parameters);
 
         using var response =
-            await _httpClient.PostAsync(url, content);
+            await _httpClient.PostAsync(url, content, cancellationToken);
 
         var json =
-            await response.Content.ReadAsStringAsync();
+            await response.Content.ReadAsStringAsync(cancellationToken);
 
-        return JsonSerializer.Deserialize<PasswordResetResponse>(
+        var result = JsonSerializer.Deserialize<PasswordResetResponse>(
             json)
             ?? new PasswordResetResponse
             {
                 Error = "empty_response"
             };
+        if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(result.Error))
+            result.Error = "http_error";
+        if (endpoint == "poll_completion")
+        {
+            var status = result.Status switch
+            {
+                "succeeded" => "succeeded",
+                "failed" => "failed",
+                "in_progress" => "in_progress",
+                "not_started" => "not_started",
+                _ => "unknown"
+            };
+            _logger.LogWarning("Entra password reset: HTTP={StatusCode}, status={ResetStatus}, hasError={HasError}",
+                (int)response.StatusCode, status, !string.IsNullOrWhiteSpace(result.Error));
+        }
+        return result;
     }
 
     public Task<PasswordResetResponse> StartAsync(
@@ -130,13 +150,14 @@ public class PasswordResetService
     }
 
     public Task<PasswordResetResponse> PollCompletionAsync(
-        string continuationToken)
+        string continuationToken,
+        CancellationToken cancellationToken = default)
     {
         return PostAsync(
             "poll_completion",
             new Dictionary<string, string>
             {
                 ["continuation_token"] = continuationToken
-            });
+            }, cancellationToken);
     }
 }

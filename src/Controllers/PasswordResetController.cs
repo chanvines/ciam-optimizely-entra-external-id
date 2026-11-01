@@ -10,6 +10,8 @@ public class PasswordResetController : Controller
     private const string TokenKey = "Valora:ResetToken";
     private const string StepKey = "Valora:ResetStep";
     private const string PollAfterKey = "Valora:PollAfter";
+    private const string PollIntervalKey = "Valora:PollInterval";
+    private const string PollDeadlineKey = "Valora:PollDeadline";
 
     public PasswordResetController(
         PasswordResetService resetService)
@@ -23,6 +25,7 @@ public class PasswordResetController : Controller
         ViewBag.Step =
             HttpContext.Session.GetString(StepKey)
             ?? "email";
+        SetPollDelay();
 
         return View("ForgotPassword");
     }
@@ -156,10 +159,10 @@ public class PasswordResetController : Controller
             StepKey,
             "poll");
 
-        var delay = Math.Clamp(
-            result.PollInterval ?? 2,
-            1,
-            60);
+        var delay = Math.Max(result.PollInterval ?? 2, 1);
+        HttpContext.Session.SetInt32(PollIntervalKey, delay);
+        HttpContext.Session.SetString(PollDeadlineKey,
+            DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds().ToString());
 
         HttpContext.Session.SetString(
             PollAfterKey,
@@ -183,6 +186,13 @@ public class PasswordResetController : Controller
         if (string.IsNullOrWhiteSpace(token))
             return Redirect("/client/forgot-password");
 
+        if (!long.TryParse(HttpContext.Session.GetString(PollDeadlineKey), out var deadline) ||
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= deadline)
+        {
+            ClearReset();
+            return Show("email", "We could not confirm your password reset in time. Try signing in with your new password, or start again.");
+        }
+
         var pollAfter =
             HttpContext.Session.GetString(PollAfterKey);
 
@@ -193,8 +203,20 @@ public class PasswordResetController : Controller
                 "Please wait before checking again.");
         }
 
-        var result =
-            await _resetService.PollCompletionAsync(token);
+        PasswordResetResponse result;
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
+            timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1,
+                deadline - DateTimeOffset.UtcNow.ToUnixTimeSeconds())));
+            result = await _resetService.PollCompletionAsync(token, timeout.Token);
+        }
+        catch (Exception ex) when (ex is HttpRequestException ||
+            ex is System.Text.Json.JsonException || ex is TaskCanceledException)
+        {
+            ClearReset();
+            return Show("email", "We could not confirm your password reset. Please try signing in, or start again.");
+        }
 
         if (result.Status == "succeeded")
         {
@@ -213,6 +235,12 @@ public class PasswordResetController : Controller
                 "Password reset could not be completed.");
         }
 
+        if (result.Status != "in_progress" && result.Status != "not_started")
+        {
+            ClearReset();
+            return Show("email", "We could not confirm your password reset. Please try signing in, or start again.");
+        }
+
         if (!string.IsNullOrWhiteSpace(
             result.ContinuationToken))
         {
@@ -222,10 +250,13 @@ public class PasswordResetController : Controller
         }
 
         // Le prochain contrôle ne doit pas être immédiat.
+        var interval = Math.Max(result.PollInterval ??
+            HttpContext.Session.GetInt32(PollIntervalKey) ?? 2, 1);
+        HttpContext.Session.SetInt32(PollIntervalKey, interval);
         HttpContext.Session.SetString(
             PollAfterKey,
             DateTimeOffset.UtcNow
-                .AddSeconds(5)
+                .AddSeconds(interval)
                 .ToUnixTimeSeconds()
                 .ToString());
 
@@ -239,6 +270,7 @@ public class PasswordResetController : Controller
     {
         ViewBag.Step = step;
         ViewBag.Message = message;
+        SetPollDelay();
 
         return View("ForgotPassword");
     }
@@ -248,5 +280,15 @@ public class PasswordResetController : Controller
         HttpContext.Session.Remove(TokenKey);
         HttpContext.Session.Remove(StepKey);
         HttpContext.Session.Remove(PollAfterKey);
+        HttpContext.Session.Remove(PollIntervalKey);
+        HttpContext.Session.Remove(PollDeadlineKey);
+    }
+
+    private void SetPollDelay()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        long.TryParse(HttpContext.Session.GetString(PollAfterKey), out var next);
+        long.TryParse(HttpContext.Session.GetString(PollDeadlineKey), out var deadline);
+        ViewBag.PollDelayMs = Math.Max(1, Math.Min(next - now, deadline - now)) * 1000;
     }
 }

@@ -53,7 +53,7 @@ Ne pas enregistrer de mot de passe dans les fichiers suivis par Git. Utiliser de
 - La session MFA et réinitialisation expire après une minute sans requête. Le cookie client connecté conserve sa durée de 30 minutes. La validité des codes reste contrôlée par Entra.
 - L’inscription et l’enrôlement MFA ne sont pas implémentés.
 - La page compte est une démonstration, sans données de portefeuille réelles.
-- La recherche CMS est désactivée ; aucun test automatisé n’est fourni.
+- La recherche CMS est désactivée. Vérifications du parcours SSPR : dotnet run --project tests/PasswordResetChecks/PasswordResetChecks.csproj
 
 ## Organisation
 
@@ -64,3 +64,5 @@ Ne pas enregistrer de mot de passe dans les fichiers suivis par Git. Utiliser de
 - `postman/` : configuration Postman initiale.
 
 La configuration personnelle peut être placée dans src/appsettings.Local.json, exclu de Git et chargé automatiquement. Les variables d’environnement et les arguments de ligne de commande ont priorité sur ce fichier. Les identifiants Entra publiés sont des valeurs fictives.
+
+La fin de réinitialisation est vérifiée automatiquement en respectant poll_interval, avec une attente maximale de confirmation de 60 secondes. Un délai dépassé ne prouve pas un échec du changement de mot de passe : le client peut essayer de se connecter. Les journaux indiquent uniquement le statut normalisé, le statut HTTP et la présence éventuelle d’une erreur.
