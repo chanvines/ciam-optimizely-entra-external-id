@@ -37,6 +37,8 @@ public class Startup(IWebHostEnvironment webHostingEnvironment)
         // MVC controllers and Razor views for the CIAM portal
         services.AddControllersWithViews();
         services.AddHttpClient<NativeAuthService>();
+        services.AddHttpClient<MfaService>();
+        services.AddHttpClient<PasswordResetService>();
         services.AddDetection();
 
         // Authentification des clients externes Valora
@@ -65,7 +67,7 @@ public class Startup(IWebHostEnvironment webHostingEnvironment)
 
         services.AddSession(options =>
         {
-            options.IdleTimeout = TimeSpan.FromSeconds(15);
+            options.IdleTimeout = TimeSpan.FromMinutes(15);
             options.Cookie.HttpOnly = true;
             options.Cookie.IsEssential = true;
         });
