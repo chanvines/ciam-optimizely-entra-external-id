@@ -31,7 +31,7 @@ public class Startup(IWebHostEnvironment webHostingEnvironment)
 
         services.AddDistributedMemoryCache();
 
-        services.AddSingleton<TokenValidationService>();
+        services.AddSingleton<ITokenValidationService, TokenValidationService>();
 
         // Required by Wangkanai.Detection
         // MVC controllers and Razor views for the CIAM portal

@@ -51,7 +51,7 @@ Ne pas enregistrer de mot de passe dans les fichiers suivis par Git. Utiliser de
 
 - Les services de connexion, MFA et réinitialisation sont enregistrés comme clients HTTP dans Startup.cs.
 - La session MFA et réinitialisation expire après une minute sans requête. Le cookie client connecté conserve sa durée de 30 minutes. La validité des codes reste contrôlée par Entra.
-- L’inscription et l’enrôlement MFA ne sont pas implémentés.
+- Le premier enrôlement MFA email est implémenté : email de sécurité, code, reprise de connexion après validation du jeton. Le signup et le rattachement Salesforce restent à implémenter.
 - La page compte est une démonstration, sans données de portefeuille réelles.
 - La recherche CMS est désactivée. Vérifications du parcours SSPR : dotnet run --project tests/PasswordResetChecks/PasswordResetChecks.csproj
 
@@ -66,3 +66,14 @@ Ne pas enregistrer de mot de passe dans les fichiers suivis par Git. Utiliser de
 La configuration personnelle peut être placée dans src/appsettings.Local.json, exclu de Git et chargé automatiquement. Les variables d’environnement et les arguments de ligne de commande ont priorité sur ce fichier. Les identifiants Entra publiés sont des valeurs fictives.
 
 La fin de réinitialisation est vérifiée automatiquement en respectant poll_interval, avec une attente maximale de confirmation de 60 secondes. Un délai dépassé ne prouve pas un échec du changement de mot de passe : le client peut essayer de se connecter. Les journaux indiquent uniquement le statut normalisé, le statut HTTP et la présence éventuelle d’une erreur.
+
+## Vérifier le premier enrôlement MFA
+
+- La règle MFA du tenant externe doit viser le compte client et l’application. Email OTP doit être autorisé ; le client utilise email + mot de passe.
+- Avec un compte client sans méthode forte enregistrée, se connecter sur `/client/login`. Si Entra retourne `registration_required`, le portail propose **Set up email verification**.
+- Renseigner une adresse de sécurité, saisir le code puis terminer la connexion. Les jetons de continuation restent en session serveur. Aucun cookie client n’est créé avant validation du jeton final.
+- Un code invalide permet de réessayer. Si la session expire (une minute sans requête), reprendre la connexion. Une méthode non prise en charge, une erreur réseau ou un jeton refusé ne doit pas ouvrir de session.
+- Si Entra retourne `preverified`, le portail finalise l’enrôlement sans inventer de code ; si un facteur supplémentaire reste requis, il poursuit le challenge MFA.
+- Contrôles simulés : `dotnet run --project tests/MfaEnrollmentChecks/MfaEnrollmentChecks.csproj`.
+
+Le test réel de l’enrôlement reste à réaliser dans le tenant personnel. Le portail ne prend en charge que l’enrôlement email ; SMS et repli navigateur restent hors de cette étape. Le lien **Create an account** ne constitue pas encore un signup fonctionnel.

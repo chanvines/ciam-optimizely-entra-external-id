@@ -15,4 +15,7 @@ public class NativeAuthResponse
 
     [JsonPropertyName("error_description")]
     public string ErrorDescription { get; set; }
+
+    [JsonPropertyName("suberror")]
+    public string SubError { get; set; }
 }

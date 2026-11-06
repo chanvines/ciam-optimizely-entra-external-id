@@ -7,16 +7,16 @@ using System.Security.Claims;
 
 namespace CiamOptimizelyPortal.Controllers;
 
-public class AuthController : Controller
+public partial class AuthController : Controller
 {
 	private readonly NativeAuthService _nativeAuthService;
 	private readonly MfaService _mfaService;
-	private readonly TokenValidationService _tokenValidationService;
+	private readonly ITokenValidationService _tokenValidationService;
 
 	public AuthController(
 		NativeAuthService nativeAuthService,
 		MfaService mfaService,
-		TokenValidationService tokenValidationService)
+		ITokenValidationService tokenValidationService)
 	{
 		_nativeAuthService = nativeAuthService;
 		_mfaService = mfaService;
@@ -46,6 +46,7 @@ public class AuthController : Controller
 		}
 
 		HttpContext.Session.Remove("Valora:MfaToken");
+		ClearRegistration();
 
 		try
 		{
@@ -55,7 +56,7 @@ public class AuthController : Controller
 					password);
 
 			// Authentification complète sans MFA supplémentaire
-			if (result.HasIdToken)
+			if (result.HasIdToken && string.IsNullOrWhiteSpace(result.Error))
 			{
 				return await CompleteLoginAsync(
 					result.IdToken);
@@ -66,55 +67,13 @@ public class AuthController : Controller
 				!string.IsNullOrWhiteSpace(
 					result.ContinuationToken))
 			{
-				var methods =
-					await _mfaService.GetMethodsAsync(
-						result.ContinuationToken);
-
-				var selectedMethod =
-					methods.Methods.FirstOrDefault(
-						m => m.ChallengeType == "oob" &&
-							 m.ChallengeChannel == "email");
-
-				if (selectedMethod == null ||
-					string.IsNullOrWhiteSpace(
-						methods.ContinuationToken))
-				{
-					ViewBag.Message =
-						"No supported MFA method is available.";
-
-					return View();
-				}
-
-				var challenge =
-					await _mfaService.SendChallengeAsync(
-						methods.ContinuationToken,
-						selectedMethod.Id);
-
-				if (string.IsNullOrWhiteSpace(
-					challenge.ContinuationToken) ||
-					challenge.ChallengeType != "oob")
-				{
-					ViewBag.Message =
-						"Unable to send the MFA verification code.";
-
-					return View();
-				}
-
-				HttpContext.Session.SetString(
-					"Valora:MfaToken",
-					challenge.ContinuationToken);
-
-				return Redirect("/client/mfa");
+				return await BeginMfaAsync(result.ContinuationToken);
 			}
 
 			// Enregistrement MFA requis
 			if (result.SubError == "registration_required")
 			{
-				ViewBag.Message =
-					"MFA registration is required. " +
-					"This authentication method is not yet configured.";
-
-				return View();
+				return await BeginRegistrationAsync(result.ContinuationToken);
 			}
 
 			ViewBag.Message =
@@ -122,10 +81,7 @@ public class AuthController : Controller
 
 			return View();
 		}
-		catch (Exception ex) when (
-			ex is HttpRequestException ||
-			ex is System.Text.Json.JsonException ||
-			ex is SecurityTokenException)
+		catch (Exception ex) when (IsRegistrationTransportError(ex))
 		{
 			ViewBag.Message =
 				"Unable to complete authentication.";
@@ -162,13 +118,18 @@ public class AuthController : Controller
 			return View();
 		}
 
-		var result = await _mfaService.VerifyCodeAsync(
-			continuationToken,
-			code);
-
-		if (result.HasIdToken)
+		try
 		{
-			return await CompleteLoginAsync(result.IdToken);
+			var result = await _mfaService.VerifyCodeAsync(continuationToken, code.Trim());
+
+			if (result.HasIdToken && string.IsNullOrWhiteSpace(result.Error))
+			{
+				return await CompleteLoginAsync(result.IdToken);
+			}
+		}
+		catch (Exception ex) when (IsRegistrationTransportError(ex))
+		{
+			// Fail closed and discard the unfinished challenge below.
 		}
 
 		// Un autre défi peut être demandé.
@@ -179,6 +140,28 @@ public class AuthController : Controller
 			"Verification failed or another authentication step is required.";
 
 		return View();
+	}
+
+	private async Task<IActionResult> BeginMfaAsync(string continuationToken)
+	{
+		var methods = await _mfaService.GetMethodsAsync(continuationToken);
+		var method = methods.Methods?.FirstOrDefault(m =>
+			m.ChallengeType == "oob" && m.ChallengeChannel == "email" && !string.IsNullOrWhiteSpace(m.Id));
+		if (method == null || !string.IsNullOrWhiteSpace(methods.Error) ||
+			string.IsNullOrWhiteSpace(methods.ContinuationToken))
+		{
+			ViewBag.Message = "No supported verification method is available. Please contact support.";
+			return View("SignIn");
+		}
+		var challenge = await _mfaService.SendChallengeAsync(methods.ContinuationToken, method.Id);
+		if (!string.IsNullOrWhiteSpace(challenge.Error) || challenge.ChallengeType != "oob" ||
+			string.IsNullOrWhiteSpace(challenge.ContinuationToken))
+		{
+			ViewBag.Message = "We could not send your verification code. Please sign in and try again.";
+			return View("SignIn");
+		}
+		HttpContext.Session.SetString("Valora:MfaToken", challenge.ContinuationToken);
+		return Redirect("/client/mfa");
 	}
 	[HttpGet("/client/signup")]
 	public IActionResult SignUp()
@@ -236,6 +219,7 @@ public class AuthController : Controller
 			});
 
 		HttpContext.Session.Remove("Valora:MfaToken");
+		ClearRegistration();
 
 		return Redirect("/client/my-account");
 	}

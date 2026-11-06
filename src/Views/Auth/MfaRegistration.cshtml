@@ -1,0 +1,56 @@
+@{
+    Layout = null;
+    var verifyCode = ViewBag.Step == "code";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Set up email verification | Valora</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #f4f6f8; color: #142238; font-family: Arial, sans-serif; }
+        header { padding: 24px; background: #142238; color: #fff; }
+        header strong { color: #c4ad72; }
+        main { max-width: 460px; margin: 64px auto; padding: 32px; background: #fff; border-radius: 12px; }
+        h1 { font-size: 28px; } p { line-height: 1.6; }
+        label { display: block; margin-top: 24px; }
+        input, button { width: 100%; padding: 14px; margin-top: 10px; border-radius: 6px; font: inherit; }
+        input { border: 1px solid #8996a6; }
+        button { margin-top: 24px; background: #142238; color: #fff; border: 0; cursor: pointer; }
+        a { color: #142238; } :focus-visible { outline: 3px solid #b29a60; outline-offset: 3px; }
+        [role=alert] { color: #9a2828; }
+        @@media (max-width: 520px) { main { margin: 32px 16px; padding: 24px; } }
+    </style>
+</head>
+<body>
+    <header><strong>VALORA</strong> | ASSET MANAGEMENT</header>
+    <main>
+        @if (verifyCode)
+        {
+            <h1>Verify your security email</h1>
+            <p>Enter the code we sent to your email to finish setting up verification.</p>
+            <form method="post" action="/client/mfa/register/verify">
+                @Html.AntiForgeryToken()
+                <label for="code">Verification code</label>
+                <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required />
+                <button type="submit">Verify and continue</button>
+            </form>
+        }
+        else
+        {
+            <h1>Set up email verification</h1>
+            <p>Add a security email to help protect your client account. We will send you a verification code.</p>
+            <form method="post" action="/client/mfa/register">
+                @Html.AntiForgeryToken()
+                <label for="email">Security email address</label>
+                <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required />
+                <button type="submit">Send verification code</button>
+            </form>
+        }
+        @if (ViewBag.Message != null) { <p role="alert">@ViewBag.Message</p> }
+        <p><a href="/client/login">Back to sign in</a></p>
+    </main>
+</body>
+</html>

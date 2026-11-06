@@ -6,7 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace CiamOptimizelyPortal.Services;
 
-public class TokenValidationService
+public class TokenValidationService : ITokenValidationService
 {
     private readonly IConfiguration _configuration;
 

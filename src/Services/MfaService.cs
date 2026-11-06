@@ -79,9 +79,22 @@ public class MfaService
         var json =
             await response.Content.ReadAsStringAsync();
 
-        return JsonSerializer.Deserialize<T>(json)
-            ?? throw new InvalidOperationException(
+        var result = JsonSerializer.Deserialize<T>(json)
+            ?? throw new JsonException(
                 "Empty Entra response.");
+
+        // Entra uses HTTP 400 for an additional authentication requirement.
+        // Only that explicit token-free response may advance to another factor.
+        var additionalStep = response.StatusCode == System.Net.HttpStatusCode.BadRequest &&
+            result is NativeTokenResponse token && !token.HasIdToken &&
+            token.Error == "invalid_grant" &&
+            token.SubError is "mfa_required" or "registration_required";
+        var retryCode = response.StatusCode == System.Net.HttpStatusCode.BadRequest &&
+            result is NativeAuthResponse registration && registration.Error == "invalid_grant" &&
+            registration.SubError == "invalid_oob_value";
+        if (!response.IsSuccessStatusCode && !additionalStep && !retryCode)
+            throw new HttpRequestException("The identity provider rejected verification.", null, response.StatusCode);
+        return result;
     }
 
     public Task<MfaMethodsResponse> GetMethodsAsync(
@@ -123,4 +136,32 @@ public class MfaService
                 ["scope"] = "openid profile"
             });
     }
+
+    public Task<MfaMethodsResponse> GetRegistrationMethodsAsync(string continuationToken) =>
+        PostAsync<MfaMethodsResponse>("register/v1.0/introspect", new()
+        {
+            ["continuation_token"] = continuationToken
+        });
+
+    public Task<NativeAuthResponse> SendRegistrationChallengeAsync(string continuationToken, string email) =>
+        PostAsync<NativeAuthResponse>("register/v1.0/challenge", new()
+        {
+            ["continuation_token"] = continuationToken,
+            ["challenge_type"] = "oob",
+            ["challenge_channel"] = "email",
+            ["challenge_target"] = email
+        });
+
+    public Task<NativeAuthResponse> CompleteRegistrationAsync(string continuationToken, string code, bool preverified = false) =>
+        PostAsync<NativeAuthResponse>("register/v1.0/continue", preverified
+            ? new() { ["continuation_token"] = continuationToken, ["grant_type"] = "continuation_token" }
+            : new() { ["continuation_token"] = continuationToken, ["grant_type"] = "oob", ["oob"] = code });
+
+    public Task<NativeTokenResponse> GetTokensAfterRegistrationAsync(string continuationToken) =>
+        PostAsync<NativeTokenResponse>("oauth2/v2.0/token", new()
+        {
+            ["continuation_token"] = continuationToken,
+            ["grant_type"] = "continuation_token",
+            ["scope"] = "openid profile"
+        });
 }
