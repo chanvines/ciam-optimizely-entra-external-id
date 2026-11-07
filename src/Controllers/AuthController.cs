@@ -26,7 +26,7 @@ public partial class AuthController : Controller
 	[HttpGet("/client/login")]
 	public IActionResult SignIn()
 	{
-		ViewBag.Message = TempData["PasswordResetSuccess"];
+		ViewBag.Message = TempData["SignUpSuccess"] ?? TempData["PasswordResetSuccess"];
 		return View();
 	}
 
@@ -163,12 +163,6 @@ public partial class AuthController : Controller
 		HttpContext.Session.SetString("Valora:MfaToken", challenge.ContinuationToken);
 		return Redirect("/client/mfa");
 	}
-	[HttpGet("/client/signup")]
-	public IActionResult SignUp()
-	{
-		return View();
-	}
-	
 	private async Task<IActionResult> CompleteLoginAsync(
 	string idToken)
 	{

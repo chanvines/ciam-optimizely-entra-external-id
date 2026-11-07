@@ -125,6 +125,37 @@ Check(await invalidToken.Controller.VerifyMfaRegistration("12345678") is ViewRes
 Check(invalidToken.Auth.SignIns == 0 && invalidToken.Validator.Calls == 1, "Rejected ID token must never create a cookie.");
 Console.WriteLine("MFA enrollment checks passed: registration, validation, extra factor, preverified, failure, expiry and HTTP errors.");
 
+var signup = Create(
+    """{"continuation_token":"signup-start"}""",
+    """{"continuation_token":"signup-code","challenge_type":"oob","challenge_channel":"email"}""",
+    """{"error":"invalid_grant","suberror":"invalid_oob_value","continuation_token":"signup-retry"}""",
+    """{"continuation_token":"signup-complete"}""");
+Check(await signup.Controller.SignUp("Example", "Client", "test@example.com", "example-password", "different") is ViewResult &&
+    signup.Handler.Requests.Count == 0, "Mismatched passwords must not call Entra.");
+Check(await signup.Controller.SignUp("Example", "Client", "test@example.com", "example-password", "example-password")
+    is RedirectResult { Url: "/client/signup/verify" }, "Successful signup challenge must show the code form.");
+Check(signup.Handler.Requests[0].Path.EndsWith("/signup/v1.0/start") &&
+    signup.Handler.Requests[0].Body.Contains("challenge_type=oob+password+redirect") &&
+    signup.Handler.Requests[0].Body.Contains("attributes="), "Signup must submit the supported challenges and profile attributes.");
+Check(signup.Handler.Requests[1].Path.EndsWith("/signup/v1.0/challenge") &&
+    signup.Handler.Requests[1].Body.Contains("continuation_token=signup-start"), "Challenge must use the start token.");
+Check(await signup.Controller.VerifySignUp("00000000") is ViewResult &&
+    signup.Session.GetString("Valora:SignUpToken") == "signup-retry", "A wrong code must allow retry with the latest token.");
+Check(await signup.Controller.VerifySignUp("12345678") is RedirectResult { Url: "/client/login" } &&
+    signup.Controller.TempData.ContainsKey("SignUpSuccess") &&
+    signup.Auth.SignIns == 0, "Confirmed signup must direct the client to sign in.");
+Check(signup.Handler.Requests[3].Path.EndsWith("/signup/v1.0/continue") &&
+    signup.Handler.Requests[3].Body.Contains("continuation_token=signup-retry") &&
+    signup.Handler.Requests[3].Body.Contains("grant_type=oob"), "Verification must submit the code with the latest token.");
+Check(await signup.Controller.VerifySignUp("12345678") is ViewResult &&
+    signup.Handler.Requests.Count == 4, "A completed or missing session must not submit the code again.");
+var incomplete = Create("""{"error":"attributes_required","continuation_token":"more-attributes"}""");
+incomplete.Session.SetString("Valora:SignUpToken", "signup-code");
+Check(await incomplete.Controller.VerifySignUp("12345678") is ViewResult &&
+    !incomplete.Controller.TempData.ContainsKey("SignUpSuccess") &&
+    incomplete.Session.GetString("Valora:SignUpToken") == null, "Additional required attributes must prevent a false confirmation.");
+Console.WriteLine("Signup checks passed: validation, email challenge, code retry, completion and missing session.");
+
 sealed class StubHandler(params string[] responses) : HttpMessageHandler
 {
     private readonly Queue<string> queue = new(responses);

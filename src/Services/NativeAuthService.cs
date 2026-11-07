@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace CiamOptimizelyPortal.Services;
 
-public class NativeAuthService
+public partial class NativeAuthService
 {
     private readonly HttpClient _httpClient;
     private readonly IConfiguration _configuration;

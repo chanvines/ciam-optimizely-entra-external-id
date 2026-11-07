@@ -51,7 +51,7 @@ Ne pas enregistrer de mot de passe dans les fichiers suivis par Git. Utiliser de
 
 - Les services de connexion, MFA et réinitialisation sont enregistrés comme clients HTTP dans Startup.cs.
 - La session MFA et réinitialisation expire après une minute sans requête. Le cookie client connecté conserve sa durée de 30 minutes. La validité des codes reste contrôlée par Entra.
-- Le premier enrôlement MFA email est implémenté : email de sécurité, code, reprise de connexion après validation du jeton. Le signup et le rattachement Salesforce restent à implémenter.
+- Le premier enrôlement MFA email est implémenté : email de sécurité, code, reprise de connexion après validation du jeton. Le rattachement Salesforce reste à implémenter.
 - La page compte est une démonstration, sans données de portefeuille réelles.
 - La recherche CMS est désactivée. Vérifications du parcours SSPR : dotnet run --project tests/PasswordResetChecks/PasswordResetChecks.csproj
 
@@ -76,4 +76,11 @@ La fin de réinitialisation est vérifiée automatiquement en respectant poll_in
 - Si Entra retourne `preverified`, le portail finalise l’enrôlement sans inventer de code ; si un facteur supplémentaire reste requis, il poursuit le challenge MFA.
 - Contrôles simulés : `dotnet run --project tests/MfaEnrollmentChecks/MfaEnrollmentChecks.csproj`.
 
-Le test réel de l’enrôlement reste à réaliser dans le tenant personnel. Le portail ne prend en charge que l’enrôlement email ; SMS et repli navigateur restent hors de cette étape. Le lien **Create an account** ne constitue pas encore un signup fonctionnel.
+Le test réel de l’enrôlement reste à réaliser dans le tenant personnel. Le portail ne prend en charge que l’enrôlement email ; SMS et repli navigateur restent hors de cette étape.
+
+## Vérifier l'inscription client
+
+- Dans le tenant externe, associer l'application native au flux d'inscription et de connexion **Email with password**. Le portail transmet le prénom, le nom et le nom d'affichage. Les autres attributs obligatoires nécessitent une adaptation du formulaire.
+- Depuis **Client Login**, sélectionner **Create an account** et utiliser une adresse de test encore absente du tenant. Saisir le code envoyé par Entra avant l'expiration de la session locale (une minute d'inactivité).
+- Après confirmation, se connecter avec l'adresse et le mot de passe choisis. Le code reçu lors de l'inscription vérifie l'adresse, puis les règles MFA du tenant s'appliquent à la connexion.
+- Les contrôles simulés d'inscription se lancent avec `dotnet run --project tests/MfaEnrollmentChecks/MfaEnrollmentChecks.csproj`.
