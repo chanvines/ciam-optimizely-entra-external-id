@@ -37,6 +37,9 @@ public class Startup(IWebHostEnvironment webHostingEnvironment)
         // MVC controllers and Razor views for the CIAM portal
         services.AddControllersWithViews();
         services.AddHttpClient<NativeAuthService>();
+        services.AddHttpClient<SalesforceContacts>(client => client.Timeout = TimeSpan.FromSeconds(10))
+            .RemoveAllLoggers()
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddHttpClient<MfaService>();
         services.AddHttpClient<PasswordResetService>();
         services.AddDetection();

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using CiamOptimizelyPortal.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 
@@ -12,15 +13,21 @@ public partial class AuthController : Controller
 	private readonly NativeAuthService _nativeAuthService;
 	private readonly MfaService _mfaService;
 	private readonly ITokenValidationService _tokenValidationService;
+	private readonly SalesforceContacts _salesforceContacts;
+	private readonly ITimeLimitedDataProtector _pendingLinkProtector;
 
 	public AuthController(
 		NativeAuthService nativeAuthService,
 		MfaService mfaService,
-		ITokenValidationService tokenValidationService)
+		ITokenValidationService tokenValidationService,
+		SalesforceContacts salesforceContacts,
+		IDataProtectionProvider dataProtectionProvider)
 	{
 		_nativeAuthService = nativeAuthService;
 		_mfaService = mfaService;
 		_tokenValidationService = tokenValidationService;
+		_salesforceContacts = salesforceContacts;
+		_pendingLinkProtector = dataProtectionProvider.CreateProtector("Valora.PendingSalesforceLink").ToTimeLimitedDataProtector();
 	}
 
 	[HttpGet("/client/login")]
@@ -124,7 +131,7 @@ public partial class AuthController : Controller
 
 			if (result.HasIdToken && string.IsNullOrWhiteSpace(result.Error))
 			{
-				return await CompleteLoginAsync(result.IdToken);
+				return await CompleteLoginAsync(result.IdToken, mfaVerified: true);
 			}
 		}
 		catch (Exception ex) when (IsRegistrationTransportError(ex))
@@ -164,7 +171,7 @@ public partial class AuthController : Controller
 		return Redirect("/client/mfa");
 	}
 	private async Task<IActionResult> CompleteLoginAsync(
-	string idToken)
+	string idToken, bool mfaVerified = false)
 	{
 		ClaimsPrincipal validatedPrincipal;
 
@@ -188,6 +195,20 @@ public partial class AuthController : Controller
 			validatedPrincipal.FindFirst("name")?.Value
 			?? validatedPrincipal.FindFirst("preferred_username")?.Value
 			?? subject;
+
+		if (_salesforceContacts.IsEnabled)
+		{
+			var contact = await ResolveClientContactAsync(validatedPrincipal, mfaVerified);
+			if (contact == null)
+			{
+				HttpContext.Session.Remove("Valora:MfaToken");
+				ClearRegistration();
+				ViewBag.Message = "We could not confirm your client access. Please sign in again or contact support.";
+				return View("SignIn");
+			}
+
+			displayName = contact.DisplayName;
+		}
 
 		var claims = new List<Claim>
 	{

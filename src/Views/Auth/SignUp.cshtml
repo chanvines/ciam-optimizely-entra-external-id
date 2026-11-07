@@ -1,7 +1,14 @@
+@model CiamOptimizelyPortal.Services.SalesforceContact
 @{
     Layout = null;
-    var verifyCode = ViewBag.VerifyCode == true;
-    var title = verifyCode ? "Verify your email" : "Create an account";
+    string step = ViewBag.Step;
+    var title = step switch
+    {
+        "code" => "Verify your email",
+        "profile" => "Confirm your profile",
+        "password" => "Choose a password",
+        _ => "Create an account"
+    };
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -30,31 +37,47 @@
     <main>
         <h1>@title</h1>
         @if (ViewBag.Message != null) { <p role="alert">@ViewBag.Message</p> }
-        @if (verifyCode)
+        @if (step == "code")
         {
-            <p>Enter the code we sent to your email to create your account.</p>
+            <p>Enter the code we sent to your email to continue.</p>
             <form method="post" action="/client/signup/verify">
                 @Html.AntiForgeryToken()
                 <label for="code">Verification code</label>
                 <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="32" required />
-                <button type="submit">Verify and create account</button>
+                <button type="submit">Verify email</button>
             </form>
             <p><a href="/client/signup">Start again</a></p>
+        }
+        else if (step == "profile")
+        {
+            <p>Confirm the name on your client record. Contact support if it needs to be updated.</p>
+            <dl>
+                <dt>Last name</dt><dd>@Model.LastName</dd>
+                <dt>First name</dt><dd>@Model.FirstName</dd>
+                <dt>Display name</dt><dd>@Model.DisplayName</dd>
+            </dl>
+            <form method="post" action="/client/signup/profile">
+                @Html.AntiForgeryToken()
+                <button type="submit">Confirm and continue</button>
+            </form>
+        }
+        else if (step == "password")
+        {
+            <form method="post" action="/client/signup/password">
+                @Html.AntiForgeryToken()
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="256" required />
+                <label for="confirmPassword">Confirm password</label>
+                <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="256" required />
+                <button type="submit">Create account</button>
+            </form>
         }
         else
         {
             <form method="post" action="/client/signup">
                 @Html.AntiForgeryToken()
-                <label for="firstName">First name</label>
-                <input id="firstName" name="firstName" autocomplete="given-name" maxlength="64" required />
-                <label for="lastName">Last name</label>
-                <input id="lastName" name="lastName" autocomplete="family-name" maxlength="64" required />
                 <label for="email">Email address</label>
                 <input id="email" name="email" type="email" autocomplete="username" maxlength="254" required />
-                <label for="password">Password</label>
-                <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="256" required />
-                <label for="confirmPassword">Confirm password</label>
-                <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="256" required />
                 <button type="submit">Send verification code</button>
             </form>
         }

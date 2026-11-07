@@ -106,7 +106,7 @@ public partial class AuthController
         ClearRegistration();
         var result = await _mfaService.GetTokensAfterRegistrationAsync(registration.ContinuationToken);
         if (result.HasIdToken && string.IsNullOrWhiteSpace(result.Error))
-            return await CompleteLoginAsync(result.IdToken);
+            return await CompleteLoginAsync(result.IdToken, mfaVerified: !preverified);
 
         if (result.SubError == "mfa_required" && !string.IsNullOrWhiteSpace(result.ContinuationToken))
             return await BeginMfaAsync(result.ContinuationToken);

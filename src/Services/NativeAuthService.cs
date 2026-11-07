@@ -113,7 +113,7 @@ public partial class NativeAuthService
             ["continuation_token"] = continuationToken,
             ["grant_type"] = "password",
             ["password"] = password,
-            ["scope"] = "openid profile"
+            ["scope"] = "openid profile email"
         };
 
         using var content =

@@ -8,17 +8,15 @@ public partial class NativeAuthService
 {
     private const string SignUpChallengeTypes = "oob password redirect";
 
-    public Task<SignUpResponse> StartSignUpAsync(string email, string password, string firstName, string lastName) =>
+    public Task<SignUpResponse> StartSignUpAsync(string email) =>
         PostSignUpAsync("start", new()
         {
             ["username"] = email,
-            ["password"] = password,
             ["challenge_type"] = SignUpChallengeTypes,
-            ["capabilities"] = "registration_required mfa_required",
-            ["attributes"] = JsonSerializer.Serialize(new { givenName = firstName, surname = lastName, displayName = $"{firstName} {lastName}" })
+            ["capabilities"] = "registration_required mfa_required"
         });
 
-    public Task<SignUpResponse> SendSignUpCodeAsync(string continuationToken) =>
+    public Task<SignUpResponse> RequestSignUpChallengeAsync(string continuationToken) =>
         PostSignUpAsync("challenge", new()
         {
             ["continuation_token"] = continuationToken,
@@ -31,6 +29,27 @@ public partial class NativeAuthService
             ["continuation_token"] = continuationToken,
             ["grant_type"] = "oob",
             ["oob"] = code
+        });
+
+    public Task<SignUpResponse> SubmitSignUpPasswordAsync(string token, string password) =>
+        PostSignUpAsync("continue", new()
+        {
+            ["continuation_token"] = token,
+            ["grant_type"] = "password",
+            ["password"] = password
+        });
+
+    public Task<SignUpResponse> SubmitSignUpAttributesAsync(string token, SalesforceContact contact) =>
+        PostSignUpAsync("continue", new()
+        {
+            ["continuation_token"] = token,
+            ["grant_type"] = "attributes",
+            ["attributes"] = JsonSerializer.Serialize(new
+            {
+                givenName = contact.FirstName?.Trim(),
+                surname = contact.LastName?.Trim(),
+                displayName = contact.DisplayName
+            })
         });
 
     private async Task<SignUpResponse> PostSignUpAsync(string step, Dictionary<string, string> parameters)
@@ -47,7 +66,8 @@ public partial class NativeAuthService
         var body = await response.Content.ReadAsStringAsync();
         LogOutcome($"signup/{step}", response, body);
         var result = JsonSerializer.Deserialize<SignUpResponse>(body) ?? new SignUpResponse();
-        if (!response.IsSuccessStatusCode && string.IsNullOrWhiteSpace(result.Error))
+        if (!response.IsSuccessStatusCode &&
+            (response.StatusCode != System.Net.HttpStatusCode.BadRequest || string.IsNullOrWhiteSpace(result.Error)))
             result.Error = "http_error";
 
         return result;

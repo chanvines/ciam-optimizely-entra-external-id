@@ -3,6 +3,7 @@ using System.Security.Claims;
 using CiamOptimizelyPortal.Controllers;
 using CiamOptimizelyPortal.Services;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -14,7 +15,9 @@ static void Check(bool condition, string message)
 {
     if (!condition) throw new Exception(message);
 }
-static (AuthController Controller, StubHandler Handler, MemorySession Session, NoSignIn Auth, TestValidator Validator) Create(params string[] responses)
+static (AuthController Controller, StubHandler Handler, MemorySession Session, NoSignIn Auth, TestValidator Validator) Create(params string[] responses) => CreateWithSalesforce(false, responses);
+
+static (AuthController Controller, StubHandler Handler, MemorySession Session, NoSignIn Auth, TestValidator Validator) CreateWithSalesforce(bool enabled, params string[] responses)
 {
     var handler = new StubHandler(responses);
     var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string>
@@ -22,6 +25,13 @@ static (AuthController Controller, StubHandler Handler, MemorySession Session, N
         ["EntraExternal:TenantSubdomain"] = "example",
         ["EntraExternal:ClientId"] = "test-client"
     }).Build();
+    if (enabled)
+    {
+        config["Salesforce:LoginUrl"] = "https://crm.example.com";
+        config["Salesforce:ClientId"] = "test-integration";
+        config["Salesforce:ClientSecret"] = "fixture-value";
+        config["Salesforce:ApiVersion"] = "v65.0";
+    }
     var session = new MemorySession();
     var auth = new NoSignIn();
     var context = new DefaultHttpContext
@@ -32,7 +42,7 @@ static (AuthController Controller, StubHandler Handler, MemorySession Session, N
     var client = new HttpClient(handler);
     var validator = new TestValidator();
     var controller = new AuthController(new NativeAuthService(client, config, NullLogger<NativeAuthService>.Instance),
-        new MfaService(client, config), validator)
+        new MfaService(client, config), validator, new SalesforceContacts(client, config), new EphemeralDataProtectionProvider())
     {
         ControllerContext = new ControllerContext { HttpContext = context },
         TempData = new TempDataDictionary(context, new EmptyTempData())
@@ -125,37 +135,80 @@ Check(await invalidToken.Controller.VerifyMfaRegistration("12345678") is ViewRes
 Check(invalidToken.Auth.SignIns == 0 && invalidToken.Validator.Calls == 1, "Rejected ID token must never create a cookie.");
 Console.WriteLine("MFA enrollment checks passed: registration, validation, extra factor, preverified, failure, expiry and HTTP errors.");
 
-var signup = Create(
+const string oauth = """{"access_token":"test-access","instance_url":"https://crm.example.com"}""";
+const string active = """{"totalSize":1,"done":true,"records":[{"Id":"003000000000001AAA","Email":"test@example.com","FirstName":"Example","LastName":"Client","ContactStatus__c":"Active","LastModifiedDate":"2026-01-01T12:00:00.000+0000"}]}""";
+var signup = CreateWithSalesforce(true,
     """{"continuation_token":"signup-start"}""",
     """{"continuation_token":"signup-code","challenge_type":"oob","challenge_channel":"email"}""",
     """{"error":"invalid_grant","suberror":"invalid_oob_value","continuation_token":"signup-retry"}""",
-    """{"continuation_token":"signup-complete"}""");
-Check(await signup.Controller.SignUp("Example", "Client", "test@example.com", "example-password", "different") is ViewResult &&
-    signup.Handler.Requests.Count == 0, "Mismatched passwords must not call Entra.");
-Check(await signup.Controller.SignUp("Example", "Client", "test@example.com", "example-password", "example-password")
-    is RedirectResult { Url: "/client/signup/verify" }, "Successful signup challenge must show the code form.");
-Check(signup.Handler.Requests[0].Path.EndsWith("/signup/v1.0/start") &&
-    signup.Handler.Requests[0].Body.Contains("challenge_type=oob+password+redirect") &&
-    signup.Handler.Requests[0].Body.Contains("attributes="), "Signup must submit the supported challenges and profile attributes.");
-Check(signup.Handler.Requests[1].Path.EndsWith("/signup/v1.0/challenge") &&
-    signup.Handler.Requests[1].Body.Contains("continuation_token=signup-start"), "Challenge must use the start token.");
+    """{"error":"credential_required","continuation_token":"email-verified"}""",
+    oauth, active,
+    """{"challenge_type":"password","continuation_token":"password-step"}""",
+    oauth, active,
+    """{"error":"attributes_required","continuation_token":"profile-step"}""",
+    """{"continuation_token":"account-created"}""",
+    """{"continuation_token":"login-start"}""",
+    """{"challenge_type":"password","continuation_token":"login-password"}""",
+    """{"id_token":"before-mfa"}""",
+    """{"id_token":"after-mfa"}""",
+    oauth, active, oauth, "precondition-failed",
+    """{"id_token":"after-mfa-retry"}""",
+    oauth, active, oauth, "",
+    """{"id_token":"retry-mfa"}""",
+    oauth, active.Replace("\"ContactStatus__c\"", "\"EntraObjectID__c\":\"00000000-0000-0000-0000-000000000001\",\"ContactStatus__c\""));
+Check(await signup.Controller.SignUpPassword("example-password", "example-password") is ViewResult &&
+    signup.Handler.Requests.Count == 0, "A direct password submission must not call Entra.");
+Check(await signup.Controller.SignUp("test@example.com") is RedirectResult { Url: "/client/signup/verify" },
+    "Signup must start with email verification.");
+Check(!signup.Handler.Requests[0].Body.Contains("password=") && !signup.Handler.Requests[0].Body.Contains("attributes="),
+    "Signup start must not submit password or profile.");
 Check(await signup.Controller.VerifySignUp("00000000") is ViewResult &&
-    signup.Session.GetString("Valora:SignUpToken") == "signup-retry", "A wrong code must allow retry with the latest token.");
-Check(await signup.Controller.VerifySignUp("12345678") is RedirectResult { Url: "/client/login" } &&
-    signup.Controller.TempData.ContainsKey("SignUpSuccess") &&
+    signup.Handler.Requests.Count == 3, "A wrong code must not query Salesforce.");
+Check(await signup.Controller.VerifySignUp("12345678") is RedirectResult { Url: "/client/signup/profile" } &&
+    signup.Handler.Requests[3].Body.Contains("continuation_token=signup-retry"),
+    "Verified email must check eligibility using the latest token.");
+Check(await signup.Controller.ConfirmSignUpProfile() is RedirectResult { Url: "/client/signup/password" },
+    "Confirmed profile must lead to password collection.");
+Check(await signup.Controller.SignUpPassword("example-password", "different") is ViewResult &&
+    signup.Handler.Requests.Count == 7, "Mismatched passwords must not be transmitted.");
+Check(await signup.Controller.SignUpPassword("example-password", "example-password") is RedirectResult { Url: "/client/login" } &&
     signup.Auth.SignIns == 0, "Confirmed signup must direct the client to sign in.");
-Check(signup.Handler.Requests[3].Path.EndsWith("/signup/v1.0/continue") &&
-    signup.Handler.Requests[3].Body.Contains("continuation_token=signup-retry") &&
-    signup.Handler.Requests[3].Body.Contains("grant_type=oob"), "Verification must submit the code with the latest token.");
-Check(await signup.Controller.VerifySignUp("12345678") is ViewResult &&
-    signup.Handler.Requests.Count == 4, "A completed or missing session must not submit the code again.");
-var incomplete = Create("""{"error":"attributes_required","continuation_token":"more-attributes"}""");
-incomplete.Session.SetString("Valora:SignUpToken", "signup-code");
-Check(await incomplete.Controller.VerifySignUp("12345678") is ViewResult &&
-    !incomplete.Controller.TempData.ContainsKey("SignUpSuccess") &&
-    incomplete.Session.GetString("Valora:SignUpToken") == null, "Additional required attributes must prevent a false confirmation.");
-Console.WriteLine("Signup checks passed: validation, email challenge, code retry, completion and missing session.");
+Check(signup.Handler.Requests[9].Body.Contains("grant_type=password") &&
+    WebUtility.UrlDecode(signup.Handler.Requests[10].Body).Contains("\"displayName\":\"Client Example\""),
+    "The final profile must use the required display name in last-name-first order.");
+var signupContext = signup.Controller.ControllerContext.HttpContext;
+signupContext.Request.Headers.Cookie = signupContext.Response.Headers.SetCookie.Single().Split(';')[0];
+Check(await signup.Controller.SignIn("test@example.com", "example-password") is ViewResult &&
+    signup.Auth.SignIns == 0 && signup.Handler.Requests.Count == 14, "A new account must complete MFA before linking.");
+signup.Session.SetString("Valora:MfaToken", "mfa-test");
+var firstLogin = await signup.Controller.Mfa("12345678");
+Check(firstLogin is ViewResult && signup.Auth.SignIns == 0 &&
+    signup.Handler.Requests[18].Body.Contains("EntraObjectID__c"),
+    "A failed Salesforce write must not open a session.");
+signup.Session.SetString("Valora:MfaToken", "mfa-test-retry");
+Check(await signup.Controller.Mfa("12345678") is RedirectResult { Url: "/client/my-account" } &&
+    signup.Auth.SignIns == 1 && signup.Handler.Requests[23].Body.Contains("EntraObjectID__c"),
+    "Retry must link Salesforce before opening the client session.");
+signup.Session.SetString("Valora:MfaToken", "mfa-test-already-linked");
+Check(await signup.Controller.Mfa("12345678") is RedirectResult { Url: "/client/my-account" } &&
+    signup.Handler.Requests.Count == 27, "Retry of a matching link must not update Salesforce again.");
 
+foreach (var denied in new[] { active.Replace("Active", "Inactive"), """{"totalSize":0,"done":true,"records":[]}""",
+    """{"totalSize":2,"done":true,"records":[]}""" })
+{
+    var blocked = CreateWithSalesforce(true,
+        """{"continuation_token":"start"}""",
+        """{"continuation_token":"otp","challenge_type":"oob","challenge_channel":"email"}""",
+        """{"error":"credential_required","continuation_token":"verified"}""", oauth, denied);
+    await blocked.Controller.SignUp("test@example.com");
+    Check(await blocked.Controller.VerifySignUp("12345678") is ViewResult &&
+        await blocked.Controller.SignUpPassword("example-password", "example-password") is ViewResult &&
+        blocked.Handler.Requests.Count == 5, "Ineligible contacts must not reach account creation.");
+}
+var unconfigured = Create();
+Check(await unconfigured.Controller.SignUp("test@example.com") is ViewResult &&
+    unconfigured.Handler.Requests.Count == 0, "Unconfigured Salesforce must block registration.");
+Console.WriteLine("Signup checks passed: email, eligibility, profile, password, MFA and idempotent Salesforce linking.");
 sealed class StubHandler(params string[] responses) : HttpMessageHandler
 {
     private readonly Queue<string> queue = new(responses);
@@ -163,8 +216,10 @@ sealed class StubHandler(params string[] responses) : HttpMessageHandler
     public List<(string Path, string Body)> Requests { get; } = new();
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        Requests.Add((request.RequestUri.AbsolutePath, await request.Content.ReadAsStringAsync(cancellationToken)));
+        Requests.Add((request.RequestUri.AbsolutePath, request.Content == null ? "" : await request.Content.ReadAsStringAsync(cancellationToken)));
         var body = queue.Dequeue();
+        if (body == "precondition-failed")
+            return new HttpResponseMessage(HttpStatusCode.PreconditionFailed);
         var status = Status == HttpStatusCode.OK && body.Contains("\"error\"")
             ? HttpStatusCode.BadRequest : Status;
         return new HttpResponseMessage(status) { Content = new StringContent(body) };
@@ -208,7 +263,8 @@ sealed class TestValidator : ITokenValidationService
         if (Reject) throw new Microsoft.IdentityModel.Tokens.SecurityTokenException("Test rejection.");
         return Task.FromResult(new ClaimsPrincipal(new ClaimsIdentity(new[]
         {
-            new Claim("sub", "test-subject"), new Claim("name", "Test Client")
+            new Claim("sub", "test-subject"), new Claim("name", "Test Client"),
+            new Claim("email", "test@example.com"), new Claim("oid", "00000000-0000-0000-0000-000000000001")
         }, "test")));
     }
 }

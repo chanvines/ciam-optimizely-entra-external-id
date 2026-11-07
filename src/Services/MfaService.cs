@@ -133,7 +133,7 @@ public class MfaService
                 ["continuation_token"] = continuationToken,
                 ["grant_type"] = "mfa_oob",
                 ["oob"] = code,
-                ["scope"] = "openid profile"
+                ["scope"] = "openid profile email"
             });
     }
 
@@ -162,6 +162,6 @@ public class MfaService
         {
             ["continuation_token"] = continuationToken,
             ["grant_type"] = "continuation_token",
-            ["scope"] = "openid profile"
+            ["scope"] = "openid profile email"
         });
 }

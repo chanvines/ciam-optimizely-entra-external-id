@@ -51,7 +51,7 @@ Ne pas enregistrer de mot de passe dans les fichiers suivis par Git. Utiliser de
 
 - Les services de connexion, MFA et réinitialisation sont enregistrés comme clients HTTP dans Startup.cs.
 - La session MFA et réinitialisation expire après une minute sans requête. Le cookie client connecté conserve sa durée de 30 minutes. La validité des codes reste contrôlée par Entra.
-- Le premier enrôlement MFA email est implémenté : email de sécurité, code, reprise de connexion après validation du jeton. Le rattachement Salesforce reste à implémenter.
+- Le premier enrôlement MFA email est implémenté : email de sécurité, code et reprise de connexion après validation du jeton. Le portail peut contrôler l'éligibilité et rattacher les comptes clients à Salesforce.
 - La page compte est une démonstration, sans données de portefeuille réelles.
 - La recherche CMS est désactivée. Vérifications du parcours SSPR : dotnet run --project tests/PasswordResetChecks/PasswordResetChecks.csproj
 
@@ -80,7 +80,23 @@ Le test réel de l’enrôlement reste à réaliser dans le tenant personnel. Le
 
 ## Vérifier l'inscription client
 
-- Dans le tenant externe, associer l'application native au flux d'inscription et de connexion **Email with password**. Le portail transmet le prénom, le nom et le nom d'affichage. Les autres attributs obligatoires nécessitent une adaptation du formulaire.
-- Depuis **Client Login**, sélectionner **Create an account** et utiliser une adresse de test encore absente du tenant. Saisir le code envoyé par Entra avant l'expiration de la session locale (une minute d'inactivité).
-- Après confirmation, se connecter avec l'adresse et le mot de passe choisis. Le code reçu lors de l'inscription vérifie l'adresse, puis les règles MFA du tenant s'appliquent à la connexion.
+- Dans le tenant externe, associer l'application native au flux **Email with password** et rendre **Display Name**, **Given Name** et **Surname** obligatoires. L'API native permet de soumettre ces attributs requis après la vérification de l'adresse. Valora confirme les données Salesforce avant l'écran du mot de passe, puis transmet les attributs lorsqu'Entra les demande. Le nom d'affichage utilise l'ordre **Nom Prénom**. Les autres attributs obligatoires nécessitent une adaptation du parcours.
+- Activer la règle **Require multifactor authentication** pour l'application client et les nouveaux clients, avec la méthode **Email OTP**. Le jeton d'identité de connexion doit contenir `oid` et l'adresse de connexion dans `email` ou `emails` pour le premier rattachement.
+- Dans Salesforce, créer une **External Client App** OAuth avec le flux **Client Credentials**, le scope **api** et un utilisateur d'intégration dédié comme **Run As**. Donner à cet utilisateur **API Enabled**, la lecture des contacts et des champs `Id`, `Email`, `FirstName`, `LastName`, `ContactStatus__c`, `EntraObjectID__c` et `LastModifiedDate`, ainsi que le droit de modifier `EntraObjectID__c`. L'utilisateur doit avoir accès aux contacts clients concernés.
+- Ajouter la section suivante dans `src/appsettings.Local.json` avec les valeurs propres au lab. La version d'API doit être prise en charge par l'organisation Salesforce.
+
+  ```json
+  {
+    "Salesforce": {
+      "LoginUrl": "https://example.my.salesforce.com",
+      "ApiVersion": "v65.0",
+      "ClientId": "YOUR_SALESFORCE_CLIENT_ID",
+      "ClientSecret": "YOUR_SALESFORCE_CLIENT_SECRET"
+    }
+  }
+  ```
+
+- Depuis **Client Login**, sélectionner **Create an account** et utiliser l'adresse d'un contact Salesforce unique avec `ContactStatus__c = Active` et `EntraObjectID__c` vide. Après l'OTP d'inscription, confirmer le profil et choisir le mot de passe. La session locale d'inscription expire après une minute d'inactivité.
+- Sur le même navigateur, se connecter et terminer le MFA. Vérifier le nom sur la fiche Entra et l'Object ID sur le contact Salesforce. Si l'écriture échoue, refaire la connexion depuis le même navigateur dans les 24 heures pour reprendre le rattachement. Après expiration ou perte du cookie de rattachement, le support doit rapprocher manuellement le compte et le contact.
+- Sans configuration Salesforce, l'inscription Valora est indisponible et les connexions existantes suivent le parcours habituel. Dès que la section Salesforce est configurée, les connexions clients exigent un rattachement actif. Tester aussi une adresse absente, un contact inactif et une adresse en doublon.
 - Les contrôles simulés d'inscription se lancent avec `dotnet run --project tests/MfaEnrollmentChecks/MfaEnrollmentChecks.csproj`.
