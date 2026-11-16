@@ -1,6 +1,27 @@
 @inherits CiamOptimizelyPortal.Views.AlloyPageBase<PageViewModel<CiamOptimizelyPortal.Models.Pages.StartPage>>
 
-<div class="start">
+@if (ViewData["IsValoraHomePage"] is true)
+{
+    <div class="valora-home">
+        <header class="valora-home__header">
+            <div class="valora-home__brand">
+                <strong>VALORA</strong>
+                <span>ASSET MANAGEMENT</span>
+            </div>
+            <nav class="valora-home__access" aria-label="Portal access">
+                <a class="valora-home__access-link" asp-controller="Auth" asp-action="SignIn">Client Login</a>
+                <button class="valora-home__access-link" type="button" disabled>Internal Users</button>
+            </nav>
+        </header>
+        <section class="valora-home__intro" aria-labelledby="valora-home-title">
+            <p class="valora-home__eyebrow">YOUR TRUSTED INVESTMENT PARTNER</p>
+            <h1 id="valora-home-title">Your ambitions. Our commitment.</h1>
+            <p class="valora-home__description">Expert investment solutions designed to protect your interests and support your long-term ambitions.</p>
+        </section>
+    </div>
+}
+
+<div class="start @(ViewData["IsValoraHomePage"] is true ? "container" : null)">
     <div epi-property="@Model.CurrentPage.MainContentArea" class="row">
         <div epi-property-item class="block" epi-on-item-rendered="OnItemRendered" />
     </div>
