@@ -14,8 +14,6 @@ public class StartPageController : PageControllerBase<StartPage>
         // Check if it is the StartPage or just a page of the StartPage type.
         if (ContentReference.StartPage.CompareToIgnoreWorkID(currentPage.ContentLink))
         {
-            ViewData["IsValoraHomePage"] = true;
-
             // Connect the view models logotype property to the start page's to make it editable
             var editHints = ViewData.GetEditHints<PageViewModel<StartPage>, StartPage>();
             editHints.AddConnection(m => m.Layout.Logotype, p => p.SiteLogotype);

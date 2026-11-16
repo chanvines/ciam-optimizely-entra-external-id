@@ -2,10 +2,6 @@
 
 @model IPageViewModel<SitePageData>
 
-@{
-    var isValoraHomePage = ViewData["IsValoraHomePage"] is true;
-}
-
 <!DOCTYPE html>
 <html lang="@(Model.CurrentPage.Language)">
 <head>
@@ -26,10 +22,6 @@
     <link rel="stylesheet" href="~/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/style.min.css" />
     <link rel="stylesheet" href="~/css/theme.min.css" />
-    @if (isValoraHomePage)
-    {
-        <link rel="stylesheet" href="~/css/valora-home.css" asp-append-version="true" />
-    }
     <link rel="shortcut icon" href="~/favicon.ico" type="image/x-icon" />
     <required-client-resources area="Header" />
 </head>
@@ -44,21 +36,14 @@
 
     @Html.FullRefreshPropertiesMetaData()
 
-    @if (!isValoraHomePage && !Model.Layout.HideHeader)
+    @if (!Model.Layout.HideHeader)
     {
         await Html.RenderPartialAsync("Header", Model);
     }
 
-    @if (isValoraHomePage)
-    {
+    <div class="container">
         @RenderBody()
-    }
-    else
-    {
-        <div class="container">
-            @RenderBody()
-        </div>
-    }
+    </div>
 
     @if (!Model.Layout.HideFooter)
     {
